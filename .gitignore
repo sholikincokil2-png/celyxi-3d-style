@@ -1,6 +1,10 @@
 # Dependencies & build artifacts
 node_modules/
+web/node_modules/
+web/dist/
 out/
+out/web_jobs/
+*.tsbuildinfo
 
 # Generated / reference media & downloaded assets
 assets/

@@ -27,6 +27,8 @@ Detailed specification: [`celyxi_style_spec.md`](celyxi_style_spec.md) | Environ
 
 - `blender_pipeline/celyxi_rig_shaders.py` — Blender 5.1.2 `bpy` character rigs (`create_celyxi_character`), shaders, inverted-hull outlines, Compositor `Bloom`, `512x512` PIL face decals, and motion/camera helpers.
 - `blender_pipeline/build_celyxi_10s.py` — Full 4-beat 300-frame scene builder & Cycles CPU CLI renderer.
+- `blender_pipeline/generate_from_idea.py` — Parameterized Idea-to-3D Blender 5.1.2 Cycles renderer accepting any storyboard JSON (`--storyboard`).
+- `web/` — **Celyxi 3D Video Studio** web app (Vite + React + Three.js 9:16 real-time preview, `.webm` capture, and Node `web/server.mjs` API for Blender MP4 rendering).
 - `src/CelyxiVideo.tsx` & `src/Root.tsx` — Remotion `Celyxi10s` (`1080x1920`, `30fps`, `300` frames, silent) composition (alongside `SleepInertia3D`).
 - `celyxi_style_spec.md` & `celyxi_deps_report.md` — Reference visual breakdown and Blender 5.1.2 hardware/API compatibility report.
 
@@ -69,3 +71,17 @@ npx remotion render src/index.ts Celyxi10s out/celyxi_10s_silent.mp4 --muted
 ```powershell
 ffprobe -v error -show_entries stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames,duration -of default=noprint_wrappers=1 out/celyxi_10s_silent.mp4
 ```
+
+---
+
+## 5. Web Studio (`web/`)
+
+Interactive **Celyxi 3D Video Studio** to turn any prompt into a 4-beat `300`-frame `@Celyxi` 3D video, preview it live in Three.js (`9:16`), export `.webm` in-browser, or render silent H.264 MP4s via Blender 5.1.2 (`blender_pipeline/generate_from_idea.py`):
+
+```powershell
+cd web && npm install && npm run build
+cd ..
+node web/server.mjs
+```
+
+Open `http://localhost:3080` once the server is running.

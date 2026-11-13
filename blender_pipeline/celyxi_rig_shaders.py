@@ -520,20 +520,27 @@ def make_celyxi_gold_mat(name="CelyxiGold", rgb=None, rim_strength=0.35):
     return mat
 
 
-def make_celyxi_visor_mat(name="CelyxiVisor"):
-    """Noise-free translucent emerald green clerk visor (Transparent + Glossy Principled mix)."""
+def make_celyxi_visor_mat(name="CelyxiVisor", color=None):
+    """Noise-free translucent visor (Transparent + Glossy Principled mix)."""
+    if color is None:
+        color = PALETTE["emerald"]
     mat = bpy.data.materials.new(name)
     nt = mat.node_tree
     nt.nodes.clear()
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     mix = nt.nodes.new("ShaderNodeMixShader")
     transp = nt.nodes.new("ShaderNodeBsdfTransparent")
-    transp.inputs["Color"].default_value = (0.35, 0.95, 0.55, 1.0)
+    transp.inputs["Color"].default_value = (
+        min(1.0, color[0] * 1.6 + 0.25),
+        min(1.0, color[1] * 1.6 + 0.25),
+        min(1.0, color[2] * 1.6 + 0.25),
+        1.0,
+    )
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.inputs["Base Color"].default_value = (*PALETTE["emerald"], 1.0)
+    bsdf.inputs["Base Color"].default_value = (*color, 1.0)
     bsdf.inputs["Roughness"].default_value = 0.14
-    _add_fresnel_rim(nt, bsdf, (0.35, 1.0, 0.55), 0.35, edge_start=0.6)
-    mix.inputs["Fac"].default_value = 0.58
+    _add_fresnel_rim(nt, bsdf, color, 0.35, edge_start=0.6)
+    mix.inputs["Fac"].default_value = 0.52
     nt.links.new(transp.outputs["BSDF"], mix.inputs[1])
     nt.links.new(bsdf.outputs["BSDF"], mix.inputs[2])
     nt.links.new(mix.outputs["Shader"], out.inputs["Surface"])
@@ -791,8 +798,19 @@ def _make_stick_segment(name, length, radius, mat, parent, loc=(0, 0, 0)):
     return piv
 
 
-def create_celyxi_character(name: str, role: str = "sheriff", location=(0, 0, 0), outline_mat=None):
-    """Build an articulated @Celyxi character rig (~1.85m) matching celyxi_style_spec.md."""
+def create_celyxi_character(
+    name: str,
+    role: str = "sheriff",
+    location=(0, 0, 0),
+    outline_mat=None,
+    outline_thickness: float = 0.022,
+    rim_strength: float = 0.42,
+    accent_rgb=None,
+):
+    """Build an articulated @Celyxi character rig (~1.85m) matching celyxi_style_spec.md.
+
+    Supported roles: 'sheriff', 'clerk', 'astronaut', 'judge', 'explorer'.
+    """
     if outline_mat is None:
         outline_mat = bpy.data.materials.get("CelyxiOutline") or make_celyxi_outline_mat()
 
@@ -803,17 +821,23 @@ def create_celyxi_character(name: str, role: str = "sheriff", location=(0, 0, 0)
     limb_mat = make_celyxi_cloth_mat(
         f"{name}_Limb", PALETTE["ink"], roughness=0.55, rim_rgb=PALETTE["sky_fill"], rim_strength=0.18
     )
-    skin_mat = make_celyxi_skin_mat(f"{name}_Skin")
-    gold_mat = make_celyxi_gold_mat(f"{name}_Gold")
+    skin_mat = make_celyxi_skin_mat(f"{name}_Skin", rim_strength=rim_strength)
+    gold_mat = make_celyxi_gold_mat(f"{name}_Gold", rgb=accent_rgb if accent_rgb else PALETTE["gold"])
 
-    if role == "sheriff":
-        torso_mat = make_celyxi_cloth_mat(f"{name}_Coat", PALETTE["leather_brown"], roughness=0.68)
-        hair_mat = make_celyxi_cloth_mat(f"{name}_Hair", (0.04, 0.025, 0.018), roughness=0.62)
-        kerchief_mat = make_celyxi_cloth_mat(f"{name}_Kerchief", PALETTE["crimson"], roughness=0.72)
-    else:
-        torso_mat = make_celyxi_cloth_mat(f"{name}_Vest", PALETTE["clerk_vest"], roughness=0.75)
-        hair_mat = make_celyxi_cloth_mat(f"{name}_Hair", (0.14, 0.09, 0.06), roughness=0.65)
-        shirt_mat = make_celyxi_cloth_mat(f"{name}_Shirt", PALETTE["clerk_shirt"], roughness=0.78)
+    role_palette = {
+        "sheriff": (PALETTE["leather_brown"], (0.04, 0.025, 0.018), PALETTE["crimson"]),
+        "clerk": (PALETTE["clerk_vest"], (0.14, 0.09, 0.06), PALETTE["clerk_shirt"]),
+        "astronaut": (hex_to_linear("#E8EEF5"), (0.10, 0.08, 0.07), hex_to_linear("#1E88E5")),
+        "judge": (hex_to_linear("#221C24"), hex_to_linear("#ECE7DF"), PALETTE["crimson"]),
+        "explorer": (hex_to_linear("#9C7B4C"), (0.18, 0.11, 0.06), PALETTE["crimson"]),
+    }
+    torso_rgb, hair_rgb, trim_rgb = role_palette.get(role, role_palette["clerk"])
+
+    torso_mat = make_celyxi_cloth_mat(
+        f"{name}_TorsoMat", torso_rgb, roughness=0.55 if role == "astronaut" else 0.70, rim_strength=rim_strength * 0.65
+    )
+    hair_mat = make_celyxi_cloth_mat(f"{name}_Hair", hair_rgb, roughness=0.64)
+    trim_mat = make_celyxi_cloth_mat(f"{name}_Trim", trim_rgb, roughness=0.72)
 
     # Torso Pivot (z = 0.54 at hip base -> center at z = 0.94, height ~0.82m)
     torso_piv = bpy.data.objects.new(f"{name}_TorsoPivot", None)
@@ -824,7 +848,7 @@ def create_celyxi_character(name: str, role: str = "sheriff", location=(0, 0, 0)
     torso = _make_capsule_mesh_obj(f"{name}_Torso", radius=0.27, height=0.82, scale=(1.04, 0.80, 1.0))
     torso.location = (0, 0, 0.40)
     torso.data.materials.append(torso_mat)
-    add_outline(torso, thickness=0.022, mat=outline_mat)
+    add_outline(torso, thickness=outline_thickness, mat=outline_mat)
     torso.parent = torso_piv
 
     # Belt + Square Gold Buckle
@@ -843,19 +867,19 @@ def create_celyxi_character(name: str, role: str = "sheriff", location=(0, 0, 0)
     buckle.name = f"{name}_Buckle"
     buckle.scale = (0.095, 0.035, 0.085)
     buckle.data.materials.append(gold_mat)
-    add_outline(buckle, thickness=0.008, mat=outline_mat)
+    add_outline(buckle, thickness=max(0.004, outline_thickness * 0.36), mat=outline_mat)
     buckle.parent = torso_piv
 
-    if role == "sheriff":
-        # Crimson kerchief collar + hanging triangle tip
+    if role in ("sheriff", "explorer"):
+        # Kerchief collar + hanging triangle tip
         bpy.ops.mesh.primitive_torus_add(
             major_radius=0.19, minor_radius=0.048, location=(0, -0.02, 0.76), rotation=(0.12, 0, 0)
         )
         collar = bpy.context.active_object
         collar.name = f"{name}_Kerchief"
         bpy.ops.object.shade_smooth()
-        collar.data.materials.append(kerchief_mat)
-        add_outline(collar, thickness=0.012, mat=outline_mat)
+        collar.data.materials.append(trim_mat)
+        add_outline(collar, thickness=outline_thickness * 0.55, mat=outline_mat)
         collar.parent = torso_piv
 
         bpy.ops.mesh.primitive_cone_add(
@@ -864,33 +888,98 @@ def create_celyxi_character(name: str, role: str = "sheriff", location=(0, 0, 0)
         ktip = bpy.context.active_object
         ktip.name = f"{name}_KerchiefTip"
         ktip.scale = (1.0, 0.35, 1.0)
-        ktip.data.materials.append(kerchief_mat)
-        add_outline(ktip, thickness=0.010, mat=outline_mat)
+        ktip.data.materials.append(trim_mat)
+        add_outline(ktip, thickness=outline_thickness * 0.45, mat=outline_mat)
         ktip.parent = torso_piv
 
-        # 6-point Sheriff Gold Star Badge (bmesh star prism)
-        star_mesh = bpy.data.meshes.new(f"{name}_SheriffStarMesh")
-        bm = bmesh.new()
-        pts_front = []
-        pts_back = []
-        for si in range(12):
-            ang = si * (math.pi / 6.0)
-            rad = 0.082 if si % 2 == 0 else 0.042
-            pts_front.append(bm.verts.new((math.cos(ang) * rad, -0.012, math.sin(ang) * rad)))
-            pts_back.append(bm.verts.new((math.cos(ang) * rad, 0.012, math.sin(ang) * rad)))
-        bm.faces.new(pts_front)
-        bm.faces.new(list(reversed(pts_back)))
-        for si in range(12):
-            sn = (si + 1) % 12
-            bm.faces.new((pts_front[si], pts_back[si], pts_back[sn], pts_front[sn]))
-        bm.to_mesh(star_mesh)
-        bm.free()
-        star = bpy.data.objects.new(f"{name}_SheriffStar", star_mesh)
-        star.location = (-0.13, -0.222, 0.54)
-        bpy.context.collection.objects.link(star)
-        star.data.materials.append(gold_mat)
-        add_outline(star, thickness=0.007, mat=outline_mat)
-        star.parent = torso_piv
+        if role == "sheriff":
+            # 6-point Sheriff Gold Star Badge (bmesh star prism)
+            star_mesh = bpy.data.meshes.new(f"{name}_SheriffStarMesh")
+            bm = bmesh.new()
+            pts_front = []
+            pts_back = []
+            for si in range(12):
+                ang = si * (math.pi / 6.0)
+                rad = 0.082 if si % 2 == 0 else 0.042
+                pts_front.append(bm.verts.new((math.cos(ang) * rad, -0.012, math.sin(ang) * rad)))
+                pts_back.append(bm.verts.new((math.cos(ang) * rad, 0.012, math.sin(ang) * rad)))
+            bm.faces.new(pts_front)
+            bm.faces.new(list(reversed(pts_back)))
+            for si in range(12):
+                sn = (si + 1) % 12
+                bm.faces.new((pts_front[si], pts_back[si], pts_back[sn], pts_front[sn]))
+            bm.to_mesh(star_mesh)
+            bm.free()
+            star = bpy.data.objects.new(f"{name}_SheriffStar", star_mesh)
+            star.location = (-0.13, -0.222, 0.54)
+            bpy.context.collection.objects.link(star)
+            star.data.materials.append(gold_mat)
+            add_outline(star, thickness=max(0.004, outline_thickness * 0.32), mat=outline_mat)
+            star.parent = torso_piv
+        else:
+            # Explorer brass compass medallion
+            bpy.ops.mesh.primitive_cylinder_add(
+                vertices=16, radius=0.068, depth=0.025, location=(-0.13, -0.222, 0.54), rotation=(math.pi / 2, 0, 0)
+            )
+            comp = bpy.context.active_object
+            comp.name = f"{name}_Compass"
+            comp.data.materials.append(gold_mat)
+            add_outline(comp, thickness=max(0.004, outline_thickness * 0.32), mat=outline_mat)
+            comp.parent = torso_piv
+    elif role == "astronaut":
+        # Space neck ring + chest mission pack + glowing comm bar
+        bpy.ops.mesh.primitive_torus_add(
+            major_radius=0.20, minor_radius=0.046, location=(0, 0, 0.77)
+        )
+        collar = bpy.context.active_object
+        collar.name = f"{name}_SpaceRing"
+        bpy.ops.object.shade_smooth()
+        collar.data.materials.append(trim_mat)
+        add_outline(collar, thickness=outline_thickness * 0.5, mat=outline_mat)
+        collar.parent = torso_piv
+
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, -0.22, 0.50))
+        chest = bpy.context.active_object
+        chest.name = f"{name}_ChestPanel"
+        chest.scale = (0.20, 0.05, 0.16)
+        chest.data.materials.append(trim_mat)
+        add_outline(chest, thickness=outline_thickness * 0.4, mat=outline_mat)
+        chest.parent = torso_piv
+
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, -0.248, 0.52))
+        comm = bpy.context.active_object
+        comm.name = f"{name}_CommGlow"
+        comm.scale = (0.11, 0.02, 0.04)
+        comm.data.materials.append(make_celyxi_emission_mat(f"{name}_CommEm", PALETTE["sweat_cyan"], 3.5))
+        comm.parent = torso_piv
+    elif role == "judge":
+        # Crimson judicial sash + white collar + gold medallion
+        bpy.ops.mesh.primitive_torus_add(
+            major_radius=0.19, minor_radius=0.042, location=(0, -0.02, 0.76)
+        )
+        collar = bpy.context.active_object
+        collar.name = f"{name}_JudgeCollar"
+        bpy.ops.object.shade_smooth()
+        collar.data.materials.append(make_celyxi_cloth_mat(f"{name}_JCol", PALETTE["face_white"], roughness=0.72))
+        add_outline(collar, thickness=outline_thickness * 0.45, mat=outline_mat)
+        collar.parent = torso_piv
+
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(-0.09, -0.215, 0.46), rotation=(0, 0.35, 0))
+        sash = bpy.context.active_object
+        sash.name = f"{name}_JudgeSash"
+        sash.scale = (0.09, 0.03, 0.48)
+        sash.data.materials.append(trim_mat)
+        add_outline(sash, thickness=outline_thickness * 0.35, mat=outline_mat)
+        sash.parent = torso_piv
+
+        bpy.ops.mesh.primitive_cylinder_add(
+            vertices=18, radius=0.068, depth=0.024, location=(0.11, -0.22, 0.54), rotation=(math.pi / 2, 0, 0)
+        )
+        med = bpy.context.active_object
+        med.name = f"{name}_JudgeSeal"
+        med.data.materials.append(gold_mat)
+        add_outline(med, thickness=outline_thickness * 0.3, mat=outline_mat)
+        med.parent = torso_piv
     else:
         # Clerk shirt collar + brass vest buttons
         bpy.ops.mesh.primitive_torus_add(
@@ -899,8 +988,8 @@ def create_celyxi_character(name: str, role: str = "sheriff", location=(0, 0, 0)
         collar = bpy.context.active_object
         collar.name = f"{name}_ShirtCollar"
         bpy.ops.object.shade_smooth()
-        collar.data.materials.append(shirt_mat)
-        add_outline(collar, thickness=0.010, mat=outline_mat)
+        collar.data.materials.append(trim_mat)
+        add_outline(collar, thickness=outline_thickness * 0.45, mat=outline_mat)
         collar.parent = torso_piv
 
         for bi, bz in enumerate((0.58, 0.44, 0.30)):
@@ -924,19 +1013,19 @@ def create_celyxi_character(name: str, role: str = "sheriff", location=(0, 0, 0)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     bpy.ops.object.shade_smooth()
     head.data.materials.append(skin_mat)
-    add_outline(head, thickness=0.024, mat=outline_mat)
+    add_outline(head, thickness=outline_thickness * 1.09, mat=outline_mat)
     head.parent = head_pivot
 
     # Molded 3D Hair Shell Cap (back/top/sides, leaving front face open)
-    hair_loc = (0, 0.045, 0.39) if role == "sheriff" else (0, 0.045, 0.37)
-    hair_scale = (1.03, 0.90, 0.86) if role == "sheriff" else (1.045, 0.95, 0.92)
+    hair_loc = (0, 0.045, 0.39) if role in ("sheriff", "explorer") else (0, 0.045, 0.37)
+    hair_scale = (1.03, 0.90, 0.86) if role in ("sheriff", "explorer") else (1.045, 0.95, 0.92)
     bpy.ops.mesh.primitive_uv_sphere_add(segments=24, ring_count=16, radius=0.386, location=hair_loc)
     hair = bpy.context.active_object
     hair.name = f"{name}_Hair"
     hair.scale = hair_scale
     bpy.ops.object.shade_smooth()
     hair.data.materials.append(hair_mat)
-    add_outline(hair, thickness=0.015, mat=outline_mat)
+    add_outline(hair, thickness=outline_thickness * 0.68, mat=outline_mat)
     hair.parent = head_pivot
 
     # Hat Pivot (sits atop head for independent tilt & follow-through wobble)
@@ -946,40 +1035,96 @@ def create_celyxi_character(name: str, role: str = "sheriff", location=(0, 0, 0)
     hat_pivot.parent = head_pivot
 
     hat_obj = None
-    if role == "sheriff":
-        hat_mat = make_celyxi_cloth_mat(f"{name}_Stetson", PALETTE["leather_brown"], roughness=0.66)
-        hat_pivot.rotation_euler = (math.radians(-4), math.radians(5), 0)
+    if role in ("sheriff", "explorer"):
+        hat_color = PALETTE["leather_brown"] if role == "sheriff" else hex_to_linear("#B89866")
+        hat_mat = make_celyxi_cloth_mat(f"{name}_HatMat", hat_color, roughness=0.66)
+        hat_pivot.rotation_euler = (math.radians(-4), math.radians(5 if role == "sheriff" else -4), 0)
 
-        # Broad curved Stetson brim
-        bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.58, depth=0.045, location=(0, 0, 0))
+        bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.58 if role == "sheriff" else 0.52, depth=0.045, location=(0, 0, 0))
         brim = bpy.context.active_object
         brim.name = f"{name}_HatBrim"
         brim.scale = (1.02, 1.12, 1.0)
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         for v in brim.data.vertices:
-            v.co.z += (v.co.x * v.co.x) * 0.24 - abs(v.co.y) * 0.05
+            if role == "sheriff":
+                v.co.z += (v.co.x * v.co.x) * 0.24 - abs(v.co.y) * 0.05
+            else:
+                v.co.z -= (v.co.x * v.co.x + v.co.y * v.co.y) * 0.14
         bpy.ops.object.shade_smooth()
         brim.data.materials.append(hat_mat)
-        add_outline(brim, thickness=0.020, mat=outline_mat)
+        add_outline(brim, thickness=outline_thickness * 0.9, mat=outline_mat)
         brim.parent = hat_pivot
 
-        # Crown + Gold Hatband
-        bpy.ops.mesh.primitive_cylinder_add(vertices=28, radius=0.31, depth=0.28, location=(0, 0, 0.14))
-        crown = bpy.context.active_object
+        if role == "sheriff":
+            bpy.ops.mesh.primitive_cylinder_add(vertices=28, radius=0.31, depth=0.28, location=(0, 0, 0.14))
+            crown = bpy.context.active_object
+            crown.scale = (0.92, 1.04, 1.0)
+        else:
+            bpy.ops.mesh.primitive_uv_sphere_add(segments=24, ring_count=14, radius=0.32, location=(0, 0, 0.02))
+            crown = bpy.context.active_object
+            crown.scale = (0.95, 1.06, 0.72)
         crown.name = f"{name}_HatCrown"
-        crown.scale = (0.92, 1.04, 1.0)
         bpy.ops.object.shade_smooth()
         crown.data.materials.append(hat_mat)
-        add_outline(crown, thickness=0.020, mat=outline_mat)
+        add_outline(crown, thickness=outline_thickness * 0.9, mat=outline_mat)
         crown.parent = hat_pivot
 
-        bpy.ops.mesh.primitive_cylinder_add(vertices=28, radius=0.32, depth=0.05, location=(0, 0, 0.04))
+        bpy.ops.mesh.primitive_cylinder_add(vertices=28, radius=0.325, depth=0.05, location=(0, 0, 0.04))
         band = bpy.context.active_object
         band.name = f"{name}_HatBand"
         band.scale = (0.92, 1.04, 1.0)
-        band.data.materials.append(gold_mat)
+        band.data.materials.append(gold_mat if role == "sheriff" else trim_mat)
         band.parent = hat_pivot
         hat_obj = brim
+    elif role == "astronaut":
+        # Translucent cyan-tinted space brow visor + neck helmet ring + antenna crest
+        hat_pivot.location = (0, 0, 0.56)
+        visor_mat = make_celyxi_visor_mat(f"{name}_AstroVisor", color=hex_to_linear("#38BDF8"))
+        bpy.ops.mesh.primitive_torus_add(
+            major_radius=0.32, minor_radius=0.036, location=(0, 0, -0.52)
+        )
+        ring = bpy.context.active_object
+        ring.name = f"{name}_HelmetRim"
+        bpy.ops.object.shade_smooth()
+        ring.data.materials.append(trim_mat)
+        add_outline(ring, thickness=outline_thickness * 0.55, mat=outline_mat)
+        ring.parent = hat_pivot
+
+        bpy.ops.mesh.primitive_cylinder_add(vertices=28, radius=0.41, depth=0.024, location=(0, -0.22, -0.02), rotation=(math.radians(-14), 0, 0))
+        shield = bpy.context.active_object
+        shield.name = f"{name}_HelmetVisor"
+        shield.scale = (0.95, 0.72, 1.0)
+        bpy.ops.object.shade_smooth()
+        shield.data.materials.append(visor_mat)
+        add_outline(shield, thickness=outline_thickness * 0.4, mat=outline_mat)
+        shield.parent = hat_pivot
+
+        bpy.ops.mesh.primitive_cylinder_add(vertices=10, radius=0.014, depth=0.22, location=(0.28, 0.06, 0.14))
+        ant = bpy.context.active_object
+        ant.name = f"{name}_Antenna"
+        ant.data.materials.append(limb_mat)
+        ant.parent = hat_pivot
+        hat_obj = shield
+    elif role == "judge":
+        # Classic white curled side-rolls judge wig + dark judge cap
+        hat_pivot.location = (0, 0.02, 0.42)
+        wig_mat = make_celyxi_cloth_mat(f"{name}_WigMat", hex_to_linear("#EFEAE2"), roughness=0.76)
+        for sx, sname in ((-0.36, "L"), (0.36, "R")):
+            bpy.ops.mesh.primitive_cylinder_add(vertices=18, radius=0.12, depth=0.44, location=(sx, 0.04, -0.10))
+            curl = bpy.context.active_object
+            curl.name = f"{name}_WigRoll_{sname}"
+            bpy.ops.object.shade_smooth()
+            curl.data.materials.append(wig_mat)
+            add_outline(curl, thickness=outline_thickness * 0.65, mat=outline_mat)
+            curl.parent = hat_pivot
+        bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=0.35, depth=0.12, location=(0, 0, 0.24))
+        jcap = bpy.context.active_object
+        jcap.name = f"{name}_JudgeCap"
+        bpy.ops.object.shade_smooth()
+        jcap.data.materials.append(torso_mat)
+        add_outline(jcap, thickness=outline_thickness * 0.75, mat=outline_mat)
+        jcap.parent = hat_pivot
+        hat_obj = jcap
     else:
         # Clerk: Emerald translucent visor + solid headband + round wire glasses
         hat_pivot.location = (0, -0.04, 0.53)
@@ -992,7 +1137,7 @@ def create_celyxi_character(name: str, role: str = "sheriff", location=(0, 0, 0)
         visor.scale = (0.95, 0.72, 1.0)
         bpy.ops.object.shade_smooth()
         visor.data.materials.append(visor_mat)
-        add_outline(visor, thickness=0.010, mat=outline_mat)
+        add_outline(visor, thickness=outline_thickness * 0.45, mat=outline_mat)
         visor.parent = hat_pivot
 
         bpy.ops.mesh.primitive_torus_add(
