@@ -1,0 +1,28 @@
+# Dependencies & build artifacts
+node_modules/
+out/
+
+# Generated / reference media & downloaded assets
+assets/
+public/video/
+public/audio/
+storyboard_e9NoHjAXYIY/
+
+# Python cache
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Binary media outputs & frames
+*.mp4
+*.mov
+*.mkv
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.mp3
+*.wav
+
+# Environment & local secrets
+.env*
